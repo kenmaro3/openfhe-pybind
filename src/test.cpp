@@ -8,6 +8,16 @@
 
 #include "openfhe.h"
 
+
+#include "utils/serial.h"
+#include "ciphertext-ser.h"
+#include "cryptocontext-ser.h"
+#include "key/evalkey.h"
+#include "key/key-ser.h"
+#include "scheme/ckksrns/ckksrns-ser.h"
+
+
+
 namespace py = pybind11;
 
 using namespace lbcrypto;
@@ -20,9 +30,57 @@ CryptoContext<DCRTPoly> generate_context_from_parameters(const CCParams<CryptoCo
     return cc;
 }
 
+
 PYBIND11_MODULE(openfhe_pybind, m)
 {
+
+  //std::shared_ptr<>
   m.def("generate_context_from_parameters", &generate_context_from_parameters);
+
+  m.def("cc_SerializeToFile", [](const std::string& filename, const std::shared_ptr<CryptoContextImpl<DCRTPoly>> obj){
+         return Serial::SerializeToFile(filename,obj,SerType::BINARY);
+  });
+  m.def("cc_DeserializeFromFile", [](const std::string& filename){
+		 std::shared_ptr<CryptoContextImpl<DCRTPoly>> obj;
+		 obj->ClearEvalSumKeys();
+		 obj->ClearEvalMultKeys();
+		 obj->ClearEvalAutomorphismKeys();
+		 lbcrypto::CryptoContextFactory<lbcrypto::DCRTPoly>::ReleaseAllContexts();
+         Serial::DeserializeFromFile(filename,obj,SerType::BINARY);
+         return obj;
+  });
+
+
+  m.def("pubKey_SerializeToFile", [](const std::string& filename, const std::shared_ptr<PublicKeyImpl<DCRTPoly>> obj){
+		 return Serial::SerializeToFile(filename,obj,SerType::BINARY);
+  });
+  m.def("pubKey_DeserializeFromFile", [](const std::string& filename){
+		 std::shared_ptr<PublicKeyImpl<DCRTPoly>> obj;
+		 Serial::DeserializeFromFile(filename,obj,SerType::BINARY);
+		 return obj;
+  });
+
+  m.def("prvKey_SerializeToFile", [](const std::string& filename, const std::shared_ptr<PrivateKeyImpl<DCRTPoly>> obj){
+         return Serial::SerializeToFile(filename,obj,SerType::BINARY);
+  });
+  m.def("prvKey_DeserializeFromFile", [](const std::string& filename){
+         std::shared_ptr<PrivateKeyImpl<DCRTPoly>> obj;
+		 Serial::DeserializeFromFile(filename,obj,SerType::BINARY);
+		 return obj;
+  });
+
+  m.def("ctext_SerializeToFile", [](const std::string& filename,std::shared_ptr<CiphertextImpl<DCRTPoly>> obj){
+         return Serial::SerializeToFile(filename,obj,SerType::BINARY);
+  });
+  m.def("ctext_DeserializeFromFile", [](const std::string& filename){
+		 std::shared_ptr<CiphertextImpl<DCRTPoly>> obj;
+		 Serial::DeserializeFromFile(filename,obj,SerType::BINARY);
+		 return obj;
+  });
+  
+  //m.def("ReleaseAllContexts",&lbcrypto::CryptoContextFactory<lbcrypto::DCRTPoly>::ReleaseAllContexts);
+
+
 
   py::enum_<PKESchemeFeature>(m, "PKESchemeFeature", py::arithmetic())
       .value("PKE", PKESchemeFeature::PKE)
@@ -81,7 +139,7 @@ PYBIND11_MODULE(openfhe_pybind, m)
         });
 
 
-  py::class_<CryptoContextImpl<DCRTPoly>>(m, "CryptoContextImpl")
+  py::class_<CryptoContextImpl<DCRTPoly>,std::shared_ptr<CryptoContextImpl<DCRTPoly>>>(m, "CryptoContextImpl")
         .def(py::init<>())
         .def("Enable", py::overload_cast<PKESchemeFeature>(&CryptoContextImpl<DCRTPoly>::Enable))
         .def("GetRingDimension", &CryptoContextImpl<DCRTPoly>::GetRingDimension)
@@ -93,6 +151,10 @@ PYBIND11_MODULE(openfhe_pybind, m)
             self.EvalBootstrapSetup(levelBudget, dim1, slots, correctionFactor);
         })
         .def("KeyGen", &CryptoContextImpl<DCRTPoly>::KeyGen)
+	.def("EvalSumKeyGen", [](CryptoContextImpl<DCRTPoly> &self, std::shared_ptr<PrivateKeyImpl<DCRTPoly>> sk){ 
+	    self.EvalSumKeyGen(sk);
+	    return true;
+	})
         .def("EvalMultKeyGen", [](CryptoContextImpl<DCRTPoly> &self, std::shared_ptr<PrivateKeyImpl<DCRTPoly>> sk){
             self.EvalMultKeyGen(sk);
             return true;
@@ -101,14 +163,24 @@ PYBIND11_MODULE(openfhe_pybind, m)
             self.EvalBootstrapKeyGen(sk, slots);
             return true;
         })
-        .def("ReEncrypt", &CryptoContextImpl<DCRTPoly>::ReEncrypt)
-        // .def("ReKeyGen", py::overload_cast<PrivateKey<DCRTPoly>, PublicKey<DCRTPoly>>(&CryptoContextImpl<DCRTPoly>::ReKeyGen))
+        .def("ReEncrypt", [](CryptoContextImpl<DCRTPoly> &self ,std::shared_ptr<CiphertextImpl<DCRTPoly>> ct ,std::shared_ptr<EvalKeyImpl<DCRTPoly>> evalkey){
+	    return self.ReEncrypt(ct,evalkey);		
+	})
+	.def("ReKeyGen", [](CryptoContextImpl<DCRTPoly> &self, const std::shared_ptr<PrivateKeyImpl<DCRTPoly>> sk ,const std::shared_ptr<PublicKeyImpl<DCRTPoly>> pk){
+
+	    return self.ReKeyGen(sk,pk);
+	})
         //.def("EvalRotateKeyGen", &CryptoContextImpl<DCRTPoly>::EvalRotateKeyGen)
         .def("EvalRotateKeyGen", [](CryptoContextImpl<DCRTPoly> &self, std::shared_ptr<PrivateKeyImpl<DCRTPoly>> sk, vector<int32_t> slots){
             self.EvalRotateKeyGen(sk, slots);
             return true;
         })
-        .def("MakeCKKSPackedPlaintext", &CryptoContextImpl<DCRTPoly>::MakeCKKSPackedPlaintextTmp)
+
+        .def("MakeCKKSPackedPlaintext", [](CryptoContextImpl<DCRTPoly> &self,vector<double> slots){
+	        return self.MakeCKKSPackedPlaintext(slots);
+	})
+
+
         // .def("Encrypt", [](CryptoContextImpl<DCRTPoly> &self, std::shared_ptr<PlaintextImpl> pt, std::shared_ptr<PublicKeyImpl<DCRTPoly>> pk){
         //     return self.Encrypt(pt, pk);
         // })
@@ -117,7 +189,7 @@ PYBIND11_MODULE(openfhe_pybind, m)
             return self.Encrypt(pk, pt);
         })
 
-        .def("ReEncrypt", &CryptoContextImpl<DCRTPoly>::ReEncrypt)
+        //.def("ReEncrypt", &CryptoContextImpl<DCRTPoly>::ReEncrypt)
         .def("Decrypt", [](CryptoContextImpl<DCRTPoly>& self, std::shared_ptr<CiphertextImpl<DCRTPoly>> ct, PrivateKey<DCRTPoly> sk){
             Plaintext res_c;
             self.Decrypt(sk, ct, &res_c);
@@ -146,13 +218,139 @@ PYBIND11_MODULE(openfhe_pybind, m)
 
         .def("EvalBootstrap", [](CryptoContextImpl<DCRTPoly>& self, std::shared_ptr<CiphertextImpl<DCRTPoly>> c){
             return self.EvalBootstrap(c);
+        })
+
+
+	.def("ClearEvalMultKeys",[](CryptoContextImpl<DCRTPoly>& self){
+			return self.ClearEvalMultKeys();
+	})
+
+	.def("SerializeEvalMultKey",[](CryptoContextImpl<DCRTPoly>& self, std::string& filename){
+			std::ofstream multkeyF(filename, std::ios::out | std::ios::binary);
+	    	if(!multkeyF.is_open()){
+                std::cerr << "Cannot write from " << filename  << std::endl;
+                std::exit(1);
+            }
+			if(!self.SerializeEvalMultKey(multkeyF,SerType::BINARY)){
+				multkeyF.close();
+				std::cerr << "Cannot serialize " << std::endl;
+				std::exit(1);
+				return false;
+			}		
+			else{
+				multkeyF.close();
+				return true;
+			}	
+		
+			
+	})
+
+	.def("DeserializeEvalMultKey",[](CryptoContextImpl<DCRTPoly>& self, std::string& filename){
+			std::ifstream multkeyIS(filename, std::ios::in | std::ios::binary);
+			if(!multkeyIS.is_open()){
+				std::cerr << "Cannot read from " << filename  << std::endl;
+				std::exit(1);
+			}
+			if(!self.DeserializeEvalMultKey(multkeyIS,SerType::BINARY)){
+                                multkeyIS.close();
+                                std::cerr << "Cannot serialize " << std::endl;
+                                std::exit(1);
+                                return false;
+                        }
+                        else{
+                                multkeyIS.close();
+                                return true;
+                        }
+			
+        })
+
+
+	.def("ClearEvalSumKeys",[](CryptoContextImpl<DCRTPoly>& self){
+            return self.ClearEvalSumKeys();
+    })
+
+        .def("SerializeEvalSumKey",[](CryptoContextImpl<DCRTPoly>& self, std::string& filename){
+            std::ofstream sumkeyF(filename, std::ios::out | std::ios::binary);
+            if(!sumkeyF.is_open()){
+                    std::cerr << "Cannot write from " << filename  << std::endl;
+                    std::exit(1);
+            }
+            if(!self.SerializeEvalSumKey(sumkeyF,SerType::BINARY)){
+                    sumkeyF.close();
+                    std::cerr << "Cannot serialize " << std::endl;
+                    std::exit(1);
+                    return false;
+            }
+            else{
+                    sumkeyF.close();
+                    return true;
+            }
+
+
+        })
+
+        .def("DeserializeEvalSumKey",[](CryptoContextImpl<DCRTPoly>& self, std::string& filename){
+            std::ifstream sumkeyIS(filename, std::ios::in | std::ios::binary);
+            if(!sumkeyIS.is_open()){
+                    std::cerr << "Cannot read from " << filename  << std::endl;
+                    std::exit(1);
+            }
+            if(!self.DeserializeEvalSumKey(sumkeyIS,SerType::BINARY)){
+                    sumkeyIS.close();
+                    std::cerr << "Cannot serialize " << std::endl;
+                    std::exit(1);
+                    return false;
+            }
+            else{
+                    sumkeyIS.close();
+                    return true;
+            }
+
+        })
+
+	.def("ClearEvalAutomorphismKeys",[](CryptoContextImpl<DCRTPoly>& self){
+        return self.ClearEvalAutomorphismKeys();
+    })
+
+        .def("SerializeEvalAutomorphismKey",[](CryptoContextImpl<DCRTPoly>& self, std::string& filename){
+            std::ofstream amkeyF(filename, std::ios::out | std::ios::binary);
+            if(!amkeyF.is_open()){
+                    std::cerr << "Cannot write from " << filename  << std::endl;
+                    std::exit(1);
+            }
+            if(!self.SerializeEvalAutomorphismKey(amkeyF,SerType::BINARY)){
+                    amkeyF.close();
+                    std::cerr << "Cannot serialize " << std::endl;
+                    std::exit(1);
+                    return false;
+            }
+            else{
+                    amkeyF.close();
+                    return true;
+            }
+
+
+        })
+
+        .def("DeserializeEvalAutomorphismKey",[](CryptoContextImpl<DCRTPoly>& self, std::string& filename){
+            std::ifstream amkeyIS(filename, std::ios::in | std::ios::binary);
+            if(!amkeyIS.is_open()){
+                    std::cerr << "Cannot read from " << filename  << std::endl;
+                    std::exit(1);
+            }
+            if(!self.DeserializeEvalAutomorphismKey(amkeyIS,SerType::BINARY)){
+                    amkeyIS.close();
+                    std::cerr << "Cannot serialize " << std::endl;
+                    std::exit(1);
+                    return false;
+            }
+            else{
+                    amkeyIS.close();
+                    return true;
+            }
+
         });
 
-
-        // .def("EvalMult", &CryptoContextImpl<DCRTPoly>::EvalMult)
-        // .def("EvalMultAndRelinearize", &CryptoContextImpl<DCRTPoly>::EvalMultAndRelinearize)
-        // .def("EvalRotate", &CryptoContextImpl<DCRTPoly>::EvalRotate)
-        // .def("EvalBootstrap", &CryptoContextImpl<DCRTPoly>::EvalBootstrap);
     
     py::class_<CKKSPackedEncoding, std::shared_ptr<CKKSPackedEncoding>>(m, "CKKSPackedEncoding")
         .def(py::init<>())
@@ -160,10 +358,17 @@ PYBIND11_MODULE(openfhe_pybind, m)
             self.SetLength(length);
             return true;
         })
+    	.def("GetLength", [](CKKSPackedEncoding& self){
+	    return self.GetLength();
+	})
         .def("Print", [](CKKSPackedEncoding& self){
             cout << self << endl;
             return true;
-        });
+        })
+
+	.def("GetRealPackedValue",[](CKKSPackedEncoding& self){
+	    return self.GetRealPackedValue();
+	});
     
     py::class_<Plaintext>(m, "Plaintext")
         .def(py::init<>())
@@ -175,6 +380,11 @@ PYBIND11_MODULE(openfhe_pybind, m)
             cout << self << endl;
             return true;
         });
+
+	//.def("GetCKKSPackedValue",[](Plaintext& self){
+	//   return this->GetCKKSPackedValue();
+
+	//});
 
     py::class_<Ciphertext<DCRTPoly>>(m, "Ciphertext")
         .def(py::init<>());
