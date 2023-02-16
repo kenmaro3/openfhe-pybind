@@ -1,5 +1,5 @@
 cmake_minimum_required (VERSION 3.5.1)
-set(pybind11_DIR /home/kmihara/.pyenv/versions/3.7.4/envs/myenv/lib/python3.7/site-packages/pybind11)
+set(pybind11_DIR /root/.pyenv/versions/3.7.4/envs/myenv/lib/python3.7/site-packages/pybind11)
 
 
 project(demo CXX)
